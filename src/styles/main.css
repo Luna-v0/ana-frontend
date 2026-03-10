@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+/* Variáveis do tema ANA */
+@theme {
+  --color-juridico-50:  #f0f4ff;
+  --color-juridico-100: #e0e9ff;
+  --color-juridico-500: #3b5bdb;
+  --color-juridico-600: #2f4ac0;
+  --color-juridico-700: #2540a8;
+  --color-juridico-900: #1a2d75;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Scrollbar discreta */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: theme(--color-juridico-500) transparent;
+}
+
+/* Transições de rota */
+.view-enter {
+  animation: fadeIn 150ms ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
