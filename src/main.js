@@ -1,64 +1,57 @@
 /**
  * ANA Frontend — entry point
- * Roteamento client-side simples via hash (#busca, #sessoes, #transcricao)
+ * Assembles the full app shell exactly as old_index.html did,
+ * split across focused modules.
  */
 
-import './styles/main.css'
-import { renderNav, ROTAS } from './components/nav.js'
-import { renderBusca }       from './views/busca.js'
-import { renderSessoes }     from './views/sessoes.js'
-import { renderTranscricao } from './views/transcricao.js'
-import { rag, health }       from './api/client.js'
+import './styles/main.css';
 
-const VIEWS = {
-  busca:       renderBusca,
-  sessoes:     renderSessoes,
-  transcricao: renderTranscricao,
-}
+import {
+  buildSidebar,
+  buildSidebarOverlay,
+  initSidebar,
+  loadTheme,
+  applyTheme,
+} from './components/sidebar.js';
 
-function rotaAtual() {
-  return (location.hash.slice(1) || 'busca')
-}
+import {
+  buildTransDrawer,
+  initTransDrawer,
+} from './components/transcription-drawer.js';
 
-function navegar(id) {
-  location.hash = id
-}
+import { buildMain, initChat } from './views/chat.js';
+import { renderMd, escHtml }   from './utils/render.js';
 
-function montar() {
-  const rota = rotaAtual()
+// ── Apply theme immediately (before paint) ───────────────────────────────────
+applyTheme(loadTheme());
 
-  document.body.innerHTML = ''
-  document.body.className = 'flex h-screen bg-gray-50 font-sans antialiased overflow-hidden'
+// ── Build app shell ───────────────────────────────────────────────────────────
+const appShell = document.createElement('div');
+appShell.className = 'h-full flex relative';
 
-  // Sidebar
-  const nav = renderNav(rota, navegar)
-  document.body.appendChild(nav)
+// 1. Mobile sidebar overlay
+const overlay = buildSidebarOverlay();
+appShell.appendChild(overlay);
 
-  // Área de conteúdo
-  const main = document.createElement('div')
-  main.id = 'main-content'
-  main.className = 'flex-1 overflow-y-auto'
-  document.body.appendChild(main)
+// 2. Transcription drawer (right slide-over)
+const transDrawer = buildTransDrawer();
+appShell.appendChild(transDrawer);
 
-  // Renderiza view
-  const renderFn = VIEWS[rota] || VIEWS.busca
-  main.appendChild(renderFn())
+// 3. Sidebar (left nav)
+const sidebar = buildSidebar();
+appShell.appendChild(sidebar);
 
-  // Status da API no nav
-  atualizarStatus()
-}
+// 4. Main content area (chat)
+const main = buildMain();
+appShell.appendChild(main);
 
-async function atualizarStatus() {
-  const el = document.getElementById('nav-status')
-  if (!el) return
-  try {
-    const s = await rag.status()
-    el.textContent = `PostgreSQL ${s.postgres_disponivel ? '✓' : '✗'} · BM25 ${s.indice_bm25_tamanho}`
-  } catch (_) {
-    el.textContent = 'API indisponível'
-  }
-}
+document.body.appendChild(appShell);
 
-// Roteamento por hash
-window.addEventListener('hashchange', montar)
-montar()
+// ── Wire sidebar (mobile overlay + theme) ─────────────────────────────────────
+const { closeSidebar } = initSidebar();
+
+// ── Wire chat (all chat logic, pass closeSidebar so newChat can close it) ─────
+initChat(closeSidebar);
+
+// ── Wire transcription drawer ─────────────────────────────────────────────────
+initTransDrawer(transDrawer, renderMd, escHtml);
