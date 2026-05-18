@@ -98,13 +98,23 @@ export function buildTransDrawer() {
           Aplicar correções
         </button>
       </div>
+
+      <div id="transAttachWrap" class="hidden pt-1">
+        <button id="attachToChatBtn"
+          class="w-full rounded-xl py-2.5 text-sm font-medium border border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors">
+          Usar no chat ↗
+        </button>
+        <p class="mt-1.5 text-center text-[11px] text-slate-400 dark:text-zinc-500">
+          Anexa a transcrição ao próximo prompt do chat
+        </p>
+      </div>
     </div>
   `;
 
   return drawer;
 }
 
-export function initTransDrawer(drawer, renderMdFn, escHtmlFn) {
+export function initTransDrawer(drawer, renderMdFn, escHtmlFn, onAttachToChat) {
   const $ = (id) => document.getElementById(id);
 
   const transcreverBtn    = $('transcreverBtn');
@@ -113,10 +123,13 @@ export function initTransDrawer(drawer, renderMdFn, escHtmlFn) {
   const transCorrections  = $('transCorrections');
   const correctionsList   = $('correctionsList');
   const applyCorrectionsBtn = $('applyCorrectionsBtn');
+  const attachToChatBtn   = $('attachToChatBtn');
+  const transAttachWrap   = $('transAttachWrap');
   const audioFile         = $('audioFile');
   const closeDrawerBtn    = $('closeDrawerBtn');
 
   let originalMarkdown = '';
+  let currentMarkdown  = '';
 
   // Open / close
   function openDrawer()  { drawer.classList.remove('translate-x-full'); }
@@ -176,8 +189,10 @@ export function initTransDrawer(drawer, renderMdFn, escHtmlFn) {
       const segs = Math.floor(dur % 60);
       transStatus.textContent = `Concluído · ${num} falante(s) · ${mins}min ${segs}s`;
       originalMarkdown = data.markdown || '(sem conteúdo)';
+      currentMarkdown  = originalMarkdown;
       transResult.innerHTML = renderMdFn(originalMarkdown);
       transResult.classList.remove('hidden');
+      transAttachWrap.classList.remove('hidden');
 
       // Camada 4: preenche tabela de revisão de participantes
       const mapeamento = data.mapeamento_speakers || {};
@@ -212,7 +227,15 @@ export function initTransDrawer(drawer, renderMdFn, escHtmlFn) {
         corrigido = corrigido.split(original).join(novo);
       }
     });
+    currentMarkdown = corrigido;
     transResult.innerHTML = renderMdFn(corrigido);
+  });
+
+  attachToChatBtn?.addEventListener('click', () => {
+    if (onAttachToChat && currentMarkdown) {
+      onAttachToChat(currentMarkdown);
+      closeDrawer();
+    }
   });
 
   return { openDrawer, closeDrawer };

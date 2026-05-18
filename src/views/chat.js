@@ -16,6 +16,8 @@ let topK = 5;
 let isBusy = false;
 let abortCtrl = null;
 let msgCounter = 0;
+let attachedTranscription = null;  // texto de transcrição anexado ao próximo envio
+let processoAnexado = null;        // { texto, nome } — documento de processo para lei discovery
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
@@ -79,12 +81,39 @@ export function buildMain() {
             class="rounded-lg px-2 py-1 text-xs border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800/60 transition-colors text-slate-500 dark:text-zinc-400"
             title="Limpar">Limpar</button>
 
+          <label id="uploadProcessoBtn"
+            class="cursor-pointer rounded-lg px-2 py-1 text-xs border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800/60 transition-colors text-slate-500 dark:text-zinc-400"
+            title="Anexar documento de processo (PDF ou TXT)">
+            📄 Processo
+            <input type="file" id="processoFileInput" accept=".pdf,.txt,.md" class="hidden">
+          </label>
+
         </div>
         <div class="flex items-center gap-2">
           <span id="charCount" class="text-[11px] text-slate-400 dark:text-zinc-500 tabular-nums">0</span>
           <button id="stopBtn"
             class="hidden rounded-lg px-2 py-1 text-xs border border-slate-200 dark:border-zinc-800 text-slate-500 dark:text-zinc-400"
             title="Cancelar busca">Parar</button>
+        </div>
+      </div>
+
+      <!-- Attachment pills (hidden by default) -->
+      <div id="attachPillsRow" class="hidden mx-3 mb-0 mt-1.5 flex flex-wrap gap-1.5">
+        <div id="attachPill" class="hidden inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs
+                    bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-700
+                    text-indigo-600 dark:text-indigo-400">
+          <span>📎 Transcrição anexada</span>
+          <button id="removeAttachBtn"
+            class="ml-1 opacity-60 hover:opacity-100 rounded transition-opacity"
+            title="Remover transcrição">✕</button>
+        </div>
+        <div id="processoPill" class="hidden inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs
+                    bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-700
+                    text-amber-700 dark:text-amber-400">
+          <span id="processoNome">📄 Documento</span>
+          <button id="removeProcessoBtn"
+            class="ml-1 opacity-60 hover:opacity-100 rounded transition-opacity"
+            title="Remover documento">✕</button>
         </div>
       </div>
 
@@ -166,6 +195,13 @@ export function initChat(closeSidebarFn) {
     kMinusBtn:            document.getElementById('kMinusBtn'),
     kPlusBtn:             document.getElementById('kPlusBtn'),
     kValue:               document.getElementById('kValue'),
+    attachPill:           document.getElementById('attachPill'),
+    attachPillsRow:       document.getElementById('attachPillsRow'),
+    removeAttachBtn:      document.getElementById('removeAttachBtn'),
+    processoPill:         document.getElementById('processoPill'),
+    processoNome:         document.getElementById('processoNome'),
+    removeProcessoBtn:    document.getElementById('removeProcessoBtn'),
+    processoFileInput:    document.getElementById('processoFileInput'),
   };
 
   // ── Rendering ────────────────────────────────────────────────────────────────
@@ -277,7 +313,9 @@ export function initChat(closeSidebarFn) {
   }
 
   function updateSendBtn() {
-    els.sendBtn.disabled = els.composer.value.trim().length === 0 || isBusy;
+    const hasText = els.composer.value.trim().length > 0;
+    const hasAttachment = !!(attachedTranscription || processoAnexado);
+    els.sendBtn.disabled = (!hasText && !hasAttachment) || isBusy;
   }
 
   function updateCharCount() {
@@ -332,6 +370,76 @@ export function initChat(closeSidebarFn) {
   els.kMinusBtn.addEventListener('click', () => { if (topK > 1)  { topK--; els.kValue.textContent = topK; } });
   els.kPlusBtn.addEventListener('click',  () => { if (topK < 20) { topK++; els.kValue.textContent = topK; } });
 
+  // ── Transcription attachment ──────────────────────────────────────────────
+
+  function setAttachedTranscription(markdown) {
+    attachedTranscription = markdown || null;
+    if (attachedTranscription) {
+      els.attachPill?.classList.remove('hidden');
+      els.composer.placeholder = 'Pergunte algo sobre a transcrição...';
+    } else {
+      els.attachPill?.classList.add('hidden');
+      if (!processoAnexado) {
+        els.composer.placeholder = 'Ex: prazo para contestação no processo civil...';
+      }
+    }
+    updatePillsRow();
+    updateSendBtn();
+    els.composer.focus();
+  }
+
+  els.removeAttachBtn?.addEventListener('click', () => setAttachedTranscription(null));
+
+  function updatePillsRow() {
+    const anyPill = attachedTranscription || processoAnexado;
+    els.attachPillsRow?.classList.toggle('hidden', !anyPill);
+  }
+
+  function setProcessoAnexado(dados) {
+    processoAnexado = dados || null;
+    if (processoAnexado) {
+      els.processoPill?.classList.remove('hidden');
+      if (els.processoNome) els.processoNome.textContent = `📄 ${processoAnexado.nome}`;
+      els.composer.placeholder = 'Pergunte sobre as leis relacionadas a este processo...';
+    } else {
+      els.processoPill?.classList.add('hidden');
+      if (!attachedTranscription) {
+        els.composer.placeholder = 'Ex: prazo para contestação no processo civil...';
+      }
+    }
+    updatePillsRow();
+    updateSendBtn();
+  }
+
+  els.removeProcessoBtn?.addEventListener('click', () => setProcessoAnexado(null));
+
+  // Document upload
+  els.processoFileInput?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const label = document.getElementById('uploadProcessoBtn');
+    if (label) label.textContent = '⏳ Extraindo...';
+
+    try {
+      const form = new FormData();
+      form.append('arquivo', file);
+      const resp = await fetch(`${BASE}/rag/extrair-texto`, { method: 'POST', body: form });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+        throw new Error(err.detail || `HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      setProcessoAnexado({ texto: data.texto, nome: data.nome });
+      els.composer.focus();
+    } catch (err) {
+      alert(`Erro ao extrair texto: ${err.message}`);
+    } finally {
+      if (label) { label.innerHTML = '📄 Processo<input type="file" id="processoFileInput" accept=".pdf,.txt,.md" class="hidden">'; }
+      // Reset input so same file can be re-selected
+      if (els.processoFileInput) els.processoFileInput.value = '';
+    }
+  });
+
   // ── Chat / API ────────────────────────────────────────────────────────────
 
   async function sendMessage() {
@@ -339,11 +447,20 @@ export function initChat(closeSidebarFn) {
     const text = els.composer.value.trim();
     if (!chat || !text || isBusy) return;
 
-    chat.messages.push({ role: 'user', content: text });
+    // Build user display content (shows attachments)
+    const transcricaoAnexada = attachedTranscription;
+    const docAnexado = processoAnexado;
+    let displayContent = text;
+    if (transcricaoAnexada) displayContent += '\n\n_📎 Transcrição de audiência anexada_';
+    if (docAnexado) displayContent += `\n\n_📄 Documento anexado: ${docAnexado.nome}_`;
+
+    chat.messages.push({ role: 'user', content: displayContent });
     updateChatTitle(chat);
     els.composer.value = '';
     autosizeTextarea();
     updateCharCount();
+    setAttachedTranscription(null);
+    setProcessoAnexado(null);
     saveState();
     renderAll();
     scrollToBottom();
@@ -360,12 +477,19 @@ export function initChat(closeSidebarFn) {
     updateSendBtn();
 
     try {
-      // ── 1. Busca de artigos ─────────────────────────────────
-      const filtros = vigenciaAtiva ? { vigencia: 'ativa' } : {};
-      const resp = await fetch(`${BASE}/rag/buscar`, {
+      // ── Pipeline /chat (SSE): classificar → buscar → validar → reformular → responder
+      const payload = {
+        mensagem: text || 'Quais leis se aplicam ao processo descrito neste documento?',
+        sessao_id: chat.id,
+        stream: true,
+      };
+      if (transcricaoAnexada) payload.transcricao_anexada = transcricaoAnexada;
+      if (docAnexado) payload.documento_processo = docAnexado.texto;
+
+      const resp = await fetch(`${BASE}/chat/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: text, filtros, top_k: topK, usar_reranker: true, usar_mmr: true }),
+        body: JSON.stringify(payload),
         signal: abortCtrl.signal,
       });
 
@@ -374,65 +498,114 @@ export function initChat(closeSidebarFn) {
         throw new Error(err.detail || `HTTP ${resp.status}`);
       }
 
-      const data = await resp.json();
-      assistantMsg.content = formatResultados(data);
-      renderMessages();
-      scrollToBottom(false);
+      // ── SSE streaming ──────────────────────────────────────
+      const BUBBLE_CLASS =
+        'w-full rounded-2xl px-4 py-3 text-sm leading-6 ' +
+        'bg-slate-50 dark:bg-zinc-900/60 border border-slate-200 dark:border-zinc-800';
+      const INDIGO_CLASS =
+        'w-full rounded-2xl px-4 py-3 text-sm leading-6 ' +
+        'bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800';
+      const CURSOR =
+        `<span class="inline-block w-0.5 h-3.5 bg-indigo-400 dark:bg-indigo-500 ml-0.5 align-middle animate-pulse"></span>`;
+      const ANALISE_LABEL =
+        `<p class="text-xs font-semibold text-indigo-500 dark:text-indigo-400 mb-2 uppercase tracking-wide">Análise jurídica</p>`;
 
-      // ── 2. Resumo via SLM (streaming) ──────────────────────
-      if (data.resultados && data.resultados.length > 0) {
-        const summaryMsg = { role: 'assistant', content: '__thinking_summary__' };
-        chat.messages.push(summaryMsg);
-        renderMessages();
-        scrollToBottom(false);
+      let intencao = 'desconhecida';
+      let streamedText = '';
+      let lawSearchMode = false;
 
-        const summaryBubble = els.messageInner.lastChild?.firstChild;
-        const INDIGO_CLASS =
-          'w-full rounded-2xl px-4 py-3 text-sm leading-6 ' +
-          'bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800';
-        const LABEL_HTML =
-          `<p class="text-xs font-semibold text-indigo-500 dark:text-indigo-400 mb-2 uppercase tracking-wide">Análise dos artigos encontrados</p>`;
-        const CURSOR_HTML =
-          `<span class="inline-block w-0.5 h-3.5 bg-indigo-400 dark:bg-indigo-500 ml-0.5 align-middle animate-pulse"></span>`;
+      // The initial thinking bubble (replaced by chunks or streamed response)
+      let thinkingBubble = els.messageInner.lastChild?.firstChild;
+      // Second bubble for LLM analysis in law-search mode
+      let analysisBubble = null;
+      let analysisMsg = null;
 
-        let summaryText = '';
-        try {
-          const summaryResp = await fetch(`${BASE}/rag/resumir`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: text, chunks: data.resultados }),
-            signal: abortCtrl.signal,
-          });
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-          if (summaryResp.ok) {
-            const reader = summaryResp.body.getReader();
-            const decoder = new TextDecoder();
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              summaryText += decoder.decode(value, { stream: true });
-              if (summaryBubble) {
-                summaryBubble.className = INDIGO_CLASS;
-                summaryBubble.innerHTML = LABEL_HTML + renderMd(summaryText.trim()) + CURSOR_HTML;
-                scrollToBottom(false);
-              }
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          let evento;
+          try { evento = JSON.parse(line.slice(6)); } catch { continue; }
+
+          if (evento.tipo === 'metadados') {
+            intencao = evento.dados?.intencao || 'desconhecida';
+            const chunks = evento.dados?.contexto_rag || [];
+
+            if (intencao === 'pesquisa_legal' && chunks.length > 0) {
+              // ── Law search: replace thinking bubble with chunks display ──
+              lawSearchMode = true;
+              assistantMsg.content = formatResultados({
+                resultados: chunks,
+                total: chunks.length,
+              });
+              // Swap the thinking bubble out
+              renderMessages();
+              scrollToBottom(false);
+
+              // Add second bubble for streaming analysis
+              analysisMsg = { role: 'assistant', content: '__thinking_summary__' };
+              chat.messages.push(analysisMsg);
+              renderMessages();
+              scrollToBottom(false);
+              analysisBubble = els.messageInner.lastChild?.firstChild;
             }
-          } else {
-            summaryText = '_Resumo indisponível (erro no servidor)._';
-          }
-        } catch (summaryErr) {
-          if (summaryErr.name === 'AbortError') {
-            summaryText = '_Análise cancelada._';
-          } else {
-            summaryText = `_Erro ao gerar resumo: ${summaryErr.message}_`;
-          }
-        }
 
-        summaryMsg.content = '__ANALISE__' + (summaryText.trim() || '_O modelo não retornou resposta._');
-        if (summaryBubble) {
-          summaryBubble.className = INDIGO_CLASS;
-          summaryBubble.innerHTML = LABEL_HTML + renderMd(summaryMsg.content.slice(11));
+          } else if (evento.tipo === 'token') {
+            streamedText += evento.token || '';
+            const bubble = lawSearchMode ? analysisBubble : thinkingBubble;
+            const cls    = lawSearchMode ? INDIGO_CLASS  : BUBBLE_CLASS;
+            const label  = lawSearchMode ? ANALISE_LABEL : '';
+            if (bubble) {
+              bubble.className = cls;
+              bubble.innerHTML = label + renderMd(streamedText) + CURSOR;
+              scrollToBottom(false);
+            }
+
+          } else if (evento.tipo === 'fim') {
+            const dados = evento.dados || {};
+
+            // Update chat title from generated description
+            if (dados.descricao) {
+              chat.title = dados.descricao.slice(0, 48);
+              saveState();
+              renderChatList();
+            }
+
+            // Finalise bubbles
+            if (lawSearchMode && analysisBubble) {
+              analysisBubble.className = INDIGO_CLASS;
+              analysisBubble.innerHTML = ANALISE_LABEL + renderMd(streamedText || '_O modelo não retornou análise._');
+              if (analysisMsg) analysisMsg.content = '__ANALISE__' + (streamedText || '');
+            } else if (thinkingBubble) {
+              thinkingBubble.className = BUBBLE_CLASS;
+              thinkingBubble.innerHTML = renderMd(streamedText || '_Sem resposta._');
+              assistantMsg.content = streamedText || '_Sem resposta._';
+            }
+
+          } else if (evento.tipo === 'erro') {
+            const errText = `**Erro no servidor:** ${evento.dados?.mensagem || 'Erro desconhecido'}`;
+            const bubble = lawSearchMode ? analysisBubble : thinkingBubble;
+            if (bubble) { bubble.className = BUBBLE_CLASS; bubble.innerHTML = renderMd(errText); }
+            assistantMsg.content = errText;
+          }
         }
+      }
+
+      // Final save of the analysis message
+      if (lawSearchMode && analysisMsg) {
+        analysisMsg.content = '__ANALISE__' + streamedText;
+      } else if (!lawSearchMode) {
+        assistantMsg.content = streamedText || '_Sem resposta._';
       }
 
     } catch (err) {
@@ -499,9 +672,12 @@ export function initChat(closeSidebarFn) {
   // ── Chat helpers ─────────────────────────────────────────────────────────
 
   function updateChatTitle(chat) {
+    // Only set provisional title from user message if chat still has default title.
+    // The agent will replace it with a proper description via the 'fim' SSE event.
+    if (chat.title !== 'Nova consulta') return;
     const first = chat.messages.find(m => m.role === 'user');
     if (!first) return;
-    const t = first.content.trim().replace(/\s+/g, ' ');
+    const t = first.content.trim().replace(/\s+/g, ' ').replace(/\n.*/, '');
     chat.title = t.length > 32 ? t.slice(0, 32) + '…' : (t || 'Nova consulta');
   }
 
@@ -583,5 +759,5 @@ export function initChat(closeSidebarFn) {
   els.composer.focus();
 
   // Expose renderAll so main.js can call it after state changes
-  return { renderAll, renderChatList };
+  return { renderAll, renderChatList, setAttachedTranscription, setProcessoAnexado };
 }

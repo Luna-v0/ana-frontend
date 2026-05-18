@@ -51,7 +51,7 @@ document.body.appendChild(appShell);
 const { closeSidebar } = initSidebar();
 
 // ── Wire chat (all chat logic, pass closeSidebar so newChat can close it) ─────
-initChat(closeSidebar);
+const { setAttachedTranscription } = initChat(closeSidebar);
 
 // ── Wire transcription drawer ─────────────────────────────────────────────────
-initTransDrawer(transDrawer, renderMd, escHtml);
+initTransDrawer(transDrawer, renderMd, escHtml, setAttachedTranscription);
