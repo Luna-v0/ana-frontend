@@ -1,7 +1,6 @@
 /**
  * ANA Frontend — entry point
- * Assembles the full app shell exactly as old_index.html did,
- * split across focused modules.
+ * Assembles the full app shell from focused modules.
  */
 
 import './styles/main.css';
